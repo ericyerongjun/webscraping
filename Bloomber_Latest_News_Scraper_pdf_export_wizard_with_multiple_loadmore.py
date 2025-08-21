@@ -1,7 +1,74 @@
 from playwright.async_api import async_playwright, Playwright
 from bs4 import BeautifulSoup
 import asyncio
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from datetime import datetime
 from fake_useragent import UserAgent
+
+def create_pdf_report(titles, times, filename="bloomberg_latest_news.pdf"):
+    """Create a PDF report with the scraped Bloomberg news"""
+    print(f"Creating PDF report: {filename}")
+    
+    # Create the PDF document
+    doc = SimpleDocTemplate(filename, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Title style
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=18,
+        spaceAfter=30,
+        alignment=1  # Center alignment
+    )
+    
+    # Article title style
+    article_title_style = ParagraphStyle(
+        'ArticleTitle',
+        parent=styles['Heading2'],
+        fontSize=12,
+        spaceAfter=6,
+        textColor='darkblue'
+    )
+    
+    # Time style
+    time_style = ParagraphStyle(
+        'TimeStyle',
+        parent=styles['Normal'],
+        fontSize=10,
+        textColor='gray',
+        spaceAfter=12
+    )
+    
+    # Add title
+    title = Paragraph("Bloomberg Latest News Report", title_style)
+    story.append(title)
+    
+    # Add generation timestamp
+    timestamp = Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal'])
+    story.append(timestamp)
+    story.append(Spacer(1, 0.2*inch))
+    
+    # Add articles
+    for i, (title_text, time_text) in enumerate(zip(titles, times), 1):
+        # Article number and title
+        article_title = Paragraph(f"{i}. {title_text}", article_title_style)
+        story.append(article_title)
+        
+        # Article time
+        article_time = Paragraph(f"Published: {time_text}", time_style)
+        story.append(article_time)
+        
+        # Add some space between articles
+        story.append(Spacer(1, 0.1*inch))
+    
+    # Build PDF
+    doc.build(story)
+    print(f"PDF report saved as: {filename}")
 
 async def scrape_Bloomberg_Latest():
     url = "https://www.bloomberg.com/latest"
@@ -146,12 +213,70 @@ async def scrape_Bloomberg_Latest():
                             print(f"{i+1}. {title}")
                 return
             
-            # Scroll to load more content
-            print("Scrolling to load more content...")
-            for i in range(3):
+            # Scroll to load more content and click "Load More" buttons
+            print("Scrolling and looking for 'Load More' buttons...")
+            
+            load_more_clicked = 0
+            max_load_more_attempts = 5  # Maximum number of times to click "Load More"
+            
+            for scroll_attempt in range(6):  # Increased scroll attempts
+                # Scroll down first
                 await page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight);")
                 await page.wait_for_timeout(2000)
-                print(f"Scroll {i+1}/3 completed")
+                print(f"Scroll {scroll_attempt+1}/6 completed")
+                
+                # Look for "Load More" button with various possible selectors
+                load_more_selectors = [
+                    'button:has-text("Load More")',
+                    'button:has-text("Show More")',
+                    'button:has-text("More Stories")',
+                    'button:has-text("View More")',
+                    '[data-testid="load-more"]',
+                    '[class*="load-more" i]',
+                    '[class*="LoadMore" i]',
+                    '[class*="show-more" i]',
+                    'button[aria-label*="load more" i]',
+                    'button[aria-label*="show more" i]',
+                    '.load-more-button',
+                    '#load-more',
+                    'button[class*="More"]'
+                ]
+                
+                load_more_found = False
+                for selector in load_more_selectors:
+                    try:
+                        # Wait a short time for the button to appear
+                        load_more_button = await page.wait_for_selector(selector, timeout=2000)
+                        if load_more_button:
+                            # Check if button is visible and clickable
+                            is_visible = await load_more_button.is_visible()
+                            is_enabled = await load_more_button.is_enabled()
+                            
+                            if is_visible and is_enabled and load_more_clicked < max_load_more_attempts:
+                                print(f"Found 'Load More' button with selector: {selector}")
+                                
+                                # Scroll the button into view
+                                await load_more_button.scroll_into_view_if_needed()
+                                await page.wait_for_timeout(1000)
+                                
+                                # Click the button
+                                await load_more_button.click()
+                                load_more_clicked += 1
+                                load_more_found = True
+                                print(f"Clicked 'Load More' button #{load_more_clicked}")
+                                
+                                # Wait for new content to load
+                                await page.wait_for_timeout(3000)
+                                break
+                    except Exception as e:
+                        continue
+                
+                # If we found and clicked a load more button, continue scrolling and looking
+                if not load_more_found:
+                    # No load more button found in this scroll, continue to next scroll
+                    continue
+            
+            print(f"Finished scrolling. Clicked 'Load More' {load_more_clicked} times.")
             
             # Get page content and parse with BeautifulSoup
             content = await page.content()
@@ -195,6 +320,12 @@ async def scrape_Bloomberg_Latest():
                 print(f"{i+1}. Title: {title}")
                 print(f"   Time: {time}")
                 print("-" * 80)
+            
+            # Create PDF report
+            if titles and times:
+                create_pdf_report(titles, times)
+            else:
+                print("No data to export to PDF")
                 
         except Exception as e:
             print(f"An error occurred: {e}")
@@ -204,6 +335,3 @@ async def scrape_Bloomberg_Latest():
 
 if __name__ == "__main__":
     asyncio.run(scrape_Bloomberg_Latest())
-        
-        
-        

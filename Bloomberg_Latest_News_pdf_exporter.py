@@ -6,6 +6,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from datetime import datetime
+from fake_useragent import UserAgent
 
 def create_pdf_report(titles, times, filename="bloomberg_latest_news.pdf"):
     """Create a PDF report with the scraped Bloomberg news"""
@@ -86,7 +87,7 @@ async def scrape_Bloomberg_Latest():
         # Create context with human-like settings
         context = await browser.new_context(
             viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            user_agent=UserAgent().chrome
         )
         
         page = await context.new_page()
